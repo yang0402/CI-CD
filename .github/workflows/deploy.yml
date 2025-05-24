@@ -1,4 +1,4 @@
-name: Docker 部署流水线
+name: Docker 部署流水线 (适配阿里云 ACR)
 
 on:
   push:
@@ -18,7 +18,7 @@ jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     environment: production
-    timeout-minutes: 10  # 添加任务超时限制
+    timeout-minutes: 10  # 整个任务最多运行 10 分钟
     permissions:
       contents: read
       packages: write
@@ -44,23 +44,21 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-buildx-
 
-      - name: 登录到 GHCR
+      - name: 登录到阿里云 ACR
         uses: docker/login-action@v2
-        timeout-minutes: 1
         with:
-          registry: ghcr.io
-          username: ${{ github.repository_owner }}
-          password: ${{ secrets.GHCR_TOKEN }}
+          registry: crpi-jus3outykfqe01tn.cn-hangzhou.personal.cr.aliyuncs.com
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
 
-      - name: 构建和推送 Docker 镜像
+      - name: 构建并推送 Docker 镜像到阿里云 ACR
         uses: docker/build-push-action@v4
-        timeout-minutes: 10
         with:
           context: .
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/simple-flask-app:latest
-            ghcr.io/${{ github.repository_owner }}/simple-flask-app:${{ github.sha }}
+            crpi-jus3outykfqe01tn.cn-hangzhou.personal.cr.aliyuncs.com/ty0402/simple-flask-app:latest
+            crpi-jus3outykfqe01tn.cn-hangzhou.personal.cr.aliyuncs.com/ty0402/simple-flask-app:${{ github.sha }}
           cache-from: type=local,src=/tmp/.buildx-cache
           cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
 
@@ -71,94 +69,66 @@ jobs:
 
       - name: 部署到服务器
         uses: appleboy/ssh-action@v0.1.10
-        timeout-minutes: 5
         env:
           OWNER: ${{ github.repository_owner }}
-          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
           IMAGE_TAG: ${{ github.sha }}
+          ACR_REGISTRY: crpi-jus3outykfqe01tn.cn-hangzhou.personal.cr.aliyuncs.com
+          ACR_NAMESPACE: ty0402
         with:
           host: 118.31.6.172
           username: root
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          envs: OWNER,GHCR_TOKEN,IMAGE_TAG
+          envs: OWNER,IMAGE_TAG,ACR_REGISTRY,ACR_NAMESPACE
           command_timeout: 20m
           script: |
             set -e
             
             echo "🚀 开始部署 - $(date)"
             
-            # 验证环境变量
-            echo "检查环境变量..."
-            if [ -z "${GHCR_TOKEN}" ]; then
-              echo "❌ GHCR_TOKEN 未设置"
-              exit 1
-            else
-              echo "✅ GHCR_TOKEN 已设置"
-            fi
-            
-            if [ -z "${OWNER}" ]; then
-              echo "❌ OWNER 未设置"
-              exit 1
-            else
-              echo "✅ OWNER 已设置: ${OWNER}"
-            fi
-            
-            # 确保 Docker 已安装并运行
+            # 检查环境变量
+            if [ -z "${IMAGE_TAG}" ]; then exit 1; fi
+            if [ -z "${ACR_REGISTRY}" ]; then exit 1; fi
+            if [ -z "${ACR_NAMESPACE}" ]; then exit 1; fi
+
+            # 如果没有安装 Docker，则安装
             if ! command -v docker &> /dev/null; then
-                echo "❌ Docker未安装，正在安装..."
-                curl -fsSL https://get.docker.com | sh
+                curl -fsSL https://get.docker.com  | sh
             fi
-            
-            # 配置 Docker 认证
-            echo "配置 Docker 认证..."
+
+            # 创建 Docker 认证文件
             mkdir -p ~/.docker
-            echo "{\"auths\":{\"ghcr.io\":{\"auth\":\"$(echo -n "${OWNER}:${GHCR_TOKEN}" | base64)\"}}}" > ~/.docker/config.json
-            
-            # 登录到 GHCR
-            echo "📦 登录到GHCR..."
-            echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${OWNER}" --password-stdin
-            
+            echo "{\"auths\":{\"${ACR_REGISTRY}\":{\"auth\":\"$(echo -n \"${OWNER}:${IMAGE_TAG}\" | base64)\"}}}" > ~/.docker/config.json
+
+            # 登录阿里云 ACR
+            echo "${IMAGE_TAG}" | docker login ${ACR_REGISTRY} -u "${OWNER}" --password-stdin
+
             # 停止并移除旧容器
-            echo "🛑 清理旧容器..."
-            docker stop simple-flask-app 2>/dev/null || true
-            docker rm simple-flask-app 2>/dev/null || true
-            
+            docker stop simple-flask-app || true
+            docker rm simple-flask-app || true
+
             # 拉取新镜像
-            echo "⬇️ 拉取新镜像..."
-            docker pull ghcr.io/${OWNER}/simple-flask-app:${IMAGE_TAG} 2>&1 | while read line; do echo "$(date '+%H:%M:%S') $line"; done
-            docker tag ghcr.io/${OWNER}/simple-flask-app:${IMAGE_TAG} ghcr.io/${OWNER}/simple-flask-app:latest
-            
+            docker pull ${ACR_REGISTRY}/${ACR_NAMESPACE}/simple-flask-app:${IMAGE_TAG}
+            docker tag ${ACR_REGISTRY}/${ACR_NAMESPACE}/simple-flask-app:${IMAGE_TAG} ${ACR_REGISTRY}/${ACR_NAMESPACE}/simple-flask-app:latest
+
             # 启动新容器
-            echo "▶️ 启动新容器..."
             docker run -d \
               --name simple-flask-app \
               --restart unless-stopped \
               --log-opt max-size=10m \
               --log-opt max-file=3 \
               -p 5000:5000 \
-              ghcr.io/${OWNER}/simple-flask-app:latest
-            
-            # 验证容器是否成功启动
-            echo "🔍 验证容器状态..."
+              ${ACR_REGISTRY}/${ACR_NAMESPACE}/simple-flask-app:latest
+
+            # 检查容器是否启动成功
             for i in {1..30}; do
-              if docker ps | grep -q simple-flask-app; then
-                echo "✅ 容器成功启动！"
-                break
-              fi
-              if [ $i -eq 30 ]; then
-                echo "❌ 容器启动失败！"
-                exit 1
-              fi
-              echo "等待容器启动... ($i/30)"
+              if docker ps | grep -q simple-flask-app; then break; fi
               sleep 1
             done
-            
+
             # 清理未使用的镜像
-            echo "🧹 清理未使用的镜像..."
             docker image prune -f
-            
-            # 清理认证信息
-            echo "🔒 清理认证信息..."
+
+            # 删除认证信息
             rm -f ~/.docker/config.json
-            
+
             echo "✅ 部署完成！- $(date)"
