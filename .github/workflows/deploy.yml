@@ -1,66 +1,113 @@
-name: GHCR CI/CD Pipeline
+name: Docker 部署流水线
 
 on:
   push:
     branches: [ master ]
-  workflow_dispatch: true
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: '选择部署环境'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+        - production
+        - staging
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     environment: production
+    permissions:
+      contents: read
+      packages: write
 
     steps:
-      - name: Checkout code
+      - name: 检出代码
         uses: actions/checkout@v3
 
-      - name: Set up Docker Buildx
+      - name: 设置 Docker Buildx
         uses: docker/setup-buildx-action@v2
 
-      - name: Login to GHCR
+      - name: 配置缓存
+        uses: actions/cache@v3
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
+
+      - name: 登录到 GHCR
         uses: docker/login-action@v2
         with:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GHCR_TOKEN }}
 
-      - name: Build and push Docker image
+      - name: 构建和推送 Docker 镜像
         uses: docker/build-push-action@v4
         with:
           context: .
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/simple-flask-app:latest
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/simple-flask-app:latest
+            ghcr.io/${{ github.repository_owner }}/simple-flask-app:${{ github.sha }}
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
 
-      - name: Deploy to Server via SSH
+      - name: 更新缓存
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+
+      - name: 部署到服务器
         uses: appleboy/ssh-action@v0.1.10
         env:
           OWNER: ${{ github.repository_owner }}
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          IMAGE_TAG: ${{ github.sha }}
         with:
-          host: ${{ secrets.SERVER_IP }}
-          username: ${{ secrets.SERVER_USER }}
+          host: 118.31.6.172
+          username: root
           key: ${{ secrets.SSH_PRIVATE_KEY }}
+          envs: OWNER,GHCR_TOKEN,IMAGE_TAG
           script: |
             set -e
-
-            echo "➡️ $(date) - Starting deployment on server..."
-
-            echo "➡️ Logging into GHCR as user: ${OWNER}..."
+            
+            echo "🚀 开始部署 - $(date)"
+            
+            # 确保 Docker 已安装并运行
+            if ! command -v docker &> /dev/null; then
+                echo "❌ Docker未安装，正在安装..."
+                curl -fsSL https://get.docker.com | sh
+            fi
+            
+            # 登录到 GHCR
+            echo "📦 登录到GHCR..."
             echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${OWNER}" --password-stdin
-
-            echo "➡️ Stopping old container..."
-            docker stop simple-flask-app || true
-
-            echo "➡️ Removing old container..."
-            docker rm simple-flask-app || true
-
-            echo "➡️ Pulling latest image from GHCR..."
-            docker pull ghcr.io/${OWNER}/simple-flask-app:latest
-
-            echo "➡️ Starting new container..."
+            
+            # 停止并移除旧容器
+            echo "🛑 清理旧容器..."
+            docker stop simple-flask-app 2>/dev/null || true
+            docker rm simple-flask-app 2>/dev/null || true
+            
+            # 拉取新镜像
+            echo "⬇️ 拉取新镜像..."
+            docker pull ghcr.io/${OWNER}/simple-flask-app:${IMAGE_TAG}
+            docker tag ghcr.io/${OWNER}/simple-flask-app:${IMAGE_TAG} ghcr.io/${OWNER}/simple-flask-app:latest
+            
+            # 启动新容器
+            echo "▶️ 启动新容器..."
             docker run -d \
               --name simple-flask-app \
+              --restart unless-stopped \
+              --log-opt max-size=10m \
+              --log-opt max-file=3 \
               -p 5000:5000 \
               ghcr.io/${OWNER}/simple-flask-app:latest
-
-            echo "✅ Deployment completed successfully!"
+            
+            # 清理未使用的镜像
+            echo "🧹 清理未使用的镜像..."
+            docker image prune -f
+            
+            echo "✅ 部署完成！"
