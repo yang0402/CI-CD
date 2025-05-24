@@ -37,7 +37,7 @@ docker login ghcr.io -u <GitHub用户名>
 
 
 
-## 注意事项
+### 注意事项
 
 替换 deploy.yml 中的 SERVER_IP 和 SERVER_USER（如果需要）
 确保 GitHub 个人访问令牌具有 write:packages 权限
