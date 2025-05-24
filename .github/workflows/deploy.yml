@@ -1,80 +1,31 @@
-name: GHCR CI/CD Pipeline
+- name: Deploy to Server
+  uses: appleboy/ssh-action@v0.1.10
+  env:
+    OWNER: ${{ github.repository_owner }}
+    GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+  with:
+    host: ${{ env.SERVER_IP }}
+    username: ${{ env.SERVER_USER }}
+    key: ${{ env.SSH_PRIVATE_KEY }}
+    script: |
+      set -e
 
-on:
-  push:
-    branches: [ master ]
-  workflow_dispatch:
+      echo "➡️ \$(date) - Starting deployment on server..."
 
-jobs:
-  build-and-deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      echo "➡️ Logging into GHCR..."
+      echo "${GHCR_TOKEN}""
+      echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${OWNER}" --password-stdin
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
+      echo "➡️ Stopping old container..."
+      docker stop simple-flask-app || true
 
-      - name: Login to GHCR
-        uses: docker/login-action@v2
-        with:
-          registry: ghcr.io
-          username: ${{ github.repository_owner }}
-          password: ${{ secrets.GHCR_TOKEN }}
+      echo "➡️ Removing old container..."
+      docker rm simple-flask-app || true
 
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v4
-        with:
-          context: .
-          push: true
-          tags: ghcr.io/${{ github.repository_owner }}/simple-flask-app:latest
+      echo "➡️ Pulling latest image from GHCR..."
+      docker pull ghcr.io/${OWNER}/simple-flask-app:latest
 
-      - name: Deploy to Server
-        env:
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-          SERVER_IP: 118.31.6.172
-          SERVER_USER: root
-          OWNER: ${{ github.repository_owner }}
-          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
-        run: |
-          # 安装 SSH 客户端
-          sudo apt-get update && sudo apt-get install -y openssh-client
+      echo "➡️ Starting new container..."
+      docker run -d --name simple-flask-app -p 5000:5000 ghcr.io/${OWNER}/simple-flask-app:latest
 
-          # 创建 SSH 目录并写入私钥
-          mkdir -p ~/.ssh
-          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-
-          # 添加远程主机到 known_hosts
-          ssh-keyscan -H $SERVER_IP > ~/.ssh/known_hosts
-
-          # 构造远程脚本内容（提前展开变量）
-          REMOTE_SCRIPT=$(cat << 'EOF'
-            set -e
-
-            echo "➡️ $(date) - Starting deployment on server..."
-
-            echo "➡️ Logging into GHCR..."
-            echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${OWNER}" --password-stdin || { echo "❌ Failed to login to GHCR"; exit 1; }
-
-            echo "➡️ Stopping old container..."
-            docker stop simple-flask-app || true
-
-            echo "➡️ Removing old container..."
-            docker rm simple-flask-app || true
-
-            echo "➡️ Pulling latest image from GHCR..."
-            docker pull ghcr.io/"${OWNER}"/simple-flask-app:latest || { echo "❌ Failed to pull image"; exit 1; }
-
-            echo "➡️ Starting new container..."
-            docker run -d \
-              --name simple-flask-app \
-              -p 5000:5000 \
-              ghcr.io/"${OWNER}"/simple-flask-app:latest || { echo "❌ Failed to start container"; exit 1; }
-
-            echo "✅ Deployment completed successfully!"
-EOF
-)
-
-          # 将构造好的脚本发送给远程服务器执行
-          echo "$REMOTE_SCRIPT" | ssh -T $SERVER_USER@$SERVER_IP
+      echo "✅ Deployment completed successfully!"
