@@ -43,12 +43,11 @@ jobs:
             ${{ runner.os }}-buildx-
 
       - name: 登录到阿里云 ACR
-        env:
-          ACR_USERNAME: ty渝州任
-          ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
-        run: |
-          mkdir -p ~/.docker
-          echo "{\"auths\":{\"crpi-jus3outykfqe01tn.cn-hangzhou.personal.cr.aliyuncs.com\":{\"auth\":\"$(echo -n \"${ACR_USERNAME}:${ACR_PASSWORD}\" | base64)\"}}}" > ~/.docker/config.json
+        uses: docker/login-action@v2
+        with:
+          registry: crpi-jus3outykfqe01tn.cn-hangzhou.personal.cr.aliyuncs.com
+          username: ty渝州任
+          password: ${{ secrets.ACR_PASSWORD }}
 
       - name: 构建并推送 Docker 镜像到阿里云 ACR
         uses: docker/build-push-action@v4
