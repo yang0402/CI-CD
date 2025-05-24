@@ -13,7 +13,7 @@
       echo "➡️ \$(date) - Starting deployment on server..."
 
       echo "➡️ Logging into GHCR..."
-      echo "${GHCR_TOKEN}""
+      echo "${GHCR_TOKEN}"
       echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${OWNER}" --password-stdin
 
       echo "➡️ Stopping old container..."
