@@ -72,5 +72,5 @@ jobs:
               -p 5000:5000 \
               ghcr.io/"$OWNER"/simple-flask-app:latest || { echo "❌ Failed to start container"; exit 1; }
 
-            echo "✅ Deployment completed successfully"
+            echo "✅ Deployment completed successfully!"
           EOF
