@@ -3,75 +3,60 @@ name: GHCR CI/CD Pipeline
 
 # 指定触发工作流的事件
 on:
-  # 当推送代码到 master 分支时触发
   push:
     branches: [ master ]
-  # 允许手动触发工作流
   workflow_dispatch:
 
 # 定义工作流中的任务
 jobs:
-  # 定义构建和部署任务
   build-and-deploy:
-    # 指定运行环境为最新 Ubuntu
     runs-on: ubuntu-latest
-    # 定义任务步骤
     steps:
-      # 检出代码到工作流环境
       - name: Checkout code
         uses: actions/checkout@v3
-      # 设置 Docker Buildx，用于构建多平台镜像
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
-      # 登录到 GitHub Container Registry (GHCR)
       - name: Login to GHCR
         uses: docker/login-action@v2
         with:
-          # 指定登录 GHCR
           registry: ghcr.io
-          # GitHub 用户名（通常为仓库拥有者）
           username: ${{ github.repository_owner }}
-          # GitHub 个人访问令牌
           password: ${{ secrets.GHCR_TOKEN }}
-      # 构建并推送 Docker 镜像到 GHCR
       - name: Build and push Docker image
         uses: docker/build-push-action@v4
         with:
-          # 指定构建上下文为当前目录
           context: .
-          # 推送镜像到 GHCR
           push: true
-          # 镜像标签，使用小写仓库名称
           tags: ghcr.io/${{ github.repository_owner }}/simple-flask-app:latest
-      # 部署到阿里云服务器
+      - name: Debug SSH and GHCR
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SERVER_IP: 118.31.6.172
+          SERVER_USER: root
+        run: |
+          echo "Repository owner: ${{ github.repository_owner }}"
+          sudo apt-get update && sudo apt-get install -y openssh-client
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H $SERVER_IP >> ~/.ssh/known_hosts
+          ssh -o StrictHostKeyChecking=no $SERVER_USER@$SERVER_IP "docker version && echo 'SSH connection successful'" || exit 1
       - name: Deploy to Server
         env:
-          # 从 GitHub Secrets 获取 SSH 私钥
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-          # 服务器 IP 地址
           SERVER_IP: 118.31.6.172
-          # 服务器用户名
-          SERVER_USER: ubuntu
-          # Docker 镜像名称
+          SERVER_USER: root
           DOCKER_IMAGE: ghcr.io/${{ github.repository_owner }}/simple-flask-app:latest
         run: |
-          # 安装 SSH 客户端
           sudo apt-get update && sudo apt-get install -y openssh-client
-          # 创建 SSH 目录
           mkdir -p ~/.ssh
-          # 将 SSH 私钥写入文件
           echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
-          # 设置 SSH 私钥权限
           chmod 600 ~/.ssh/id_rsa
-          # 添加服务器到已知主机，禁用严格主机检查
           ssh-keyscan -H $SERVER_IP >> ~/.ssh/known_hosts
-          # 通过 SSH 执行服务器上的部署命令
           ssh $SERVER_USER@$SERVER_IP << 'EOF'
-            # 登录 GHCR，使用 GitHub 个人访问令牌
-            echo ${{ secrets.GHCR_TOKEN }} | docker login ghcr.io -u ${{ github.repository_owner }} --password-stdin
-            # 停止并删除现有容器（如果存在）
+            echo ${{ secrets.GHCR_TOKEN }} | docker login ghcr.io -u ${{ github.repository_owner }} --password-stdin && echo "GHCR login successful" || exit 1
             docker stop simple-flask-app || true
             docker rm simple-flask-app || true
-            # 运行新的 Docker 容器
-            docker run -d --name simple-flask-app -p 5000:5000 $DOCKER_IMAGE
+            docker pull $DOCKER_IMAGE && echo "Docker pull successful" || exit 1
+            docker run -d --name simple-flask-app -p 5000:5000 $DOCKER_IMAGE && echo "Docker run successful" || exit 1
           EOF
