@@ -81,15 +81,26 @@ jobs:
           username: root
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           envs: OWNER,GHCR_TOKEN,IMAGE_TAG
-          command_timeout: 20m  # 增加命令执行超时时间
+          command_timeout: 20m
           script: |
             set -e
             
             echo "🚀 开始部署 - $(date)"
             
-            # 检查并安装 pv 工具用于显示进度
-            if ! command -v pv &> /dev/null; then
-                apt-get update && apt-get install -y pv
+            # 验证环境变量
+            echo "检查环境变量..."
+            if [ -z "${GHCR_TOKEN}" ]; then
+              echo "❌ GHCR_TOKEN 未设置"
+              exit 1
+            else
+              echo "✅ GHCR_TOKEN 已设置"
+            fi
+            
+            if [ -z "${OWNER}" ]; then
+              echo "❌ OWNER 未设置"
+              exit 1
+            else
+              echo "✅ OWNER 已设置: ${OWNER}"
             fi
             
             # 确保 Docker 已安装并运行
@@ -97,6 +108,11 @@ jobs:
                 echo "❌ Docker未安装，正在安装..."
                 curl -fsSL https://get.docker.com | sh
             fi
+            
+            # 配置 Docker 认证
+            echo "配置 Docker 认证..."
+            mkdir -p ~/.docker
+            echo "{\"auths\":{\"ghcr.io\":{\"auth\":\"$(echo -n "${OWNER}:${GHCR_TOKEN}" | base64)\"}}}" > ~/.docker/config.json
             
             # 登录到 GHCR
             echo "📦 登录到GHCR..."
@@ -107,7 +123,7 @@ jobs:
             docker stop simple-flask-app 2>/dev/null || true
             docker rm simple-flask-app 2>/dev/null || true
             
-            # 拉取新镜像（使用 pv 显示进度）
+            # 拉取新镜像
             echo "⬇️ 拉取新镜像..."
             docker pull ghcr.io/${OWNER}/simple-flask-app:${IMAGE_TAG} 2>&1 | while read line; do echo "$(date '+%H:%M:%S') $line"; done
             docker tag ghcr.io/${OWNER}/simple-flask-app:${IMAGE_TAG} ghcr.io/${OWNER}/simple-flask-app:latest
@@ -140,5 +156,9 @@ jobs:
             # 清理未使用的镜像
             echo "🧹 清理未使用的镜像..."
             docker image prune -f
+            
+            # 清理认证信息
+            echo "🔒 清理认证信息..."
+            rm -f ~/.docker/config.json
             
             echo "✅ 部署完成！- $(date)"
