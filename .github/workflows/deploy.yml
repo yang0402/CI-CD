@@ -45,24 +45,39 @@ jobs:
           echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
 
-          # 添加远程主机到 known_hosts
-          ssh-keyscan -H $SERVER_IP >> ~/.ssh/known_hosts
+          # 清空 known_hosts 并重新添加远程主机
+          ssh-keyscan -H $SERVER_IP > ~/.ssh/known_hosts
 
           # 执行远程部署命令
-          ssh $SERVER_USER@$SERVER_IP << EOF
+          ssh -T $SERVER_USER@$SERVER_IP << 'EOF'
+            set -e  # 开启错误中断模式
+
+            # 输出当前时间，便于调试
+            echo "➡️ $(date) - Starting deployment on server..."
+
             # 登录 GHCR
-            echo "$GITHUB_TOKEN" | docker login ghcr.io -u $OWNER --password-stdin
+            echo "➡️ Logging into GHCR..."
+            echo "$GITHUB_TOKEN" | docker login ghcr.io -u $OWNER --password-stdin || { echo "❌ Failed to login to GHCR"; exit 1; }
 
             # 停止并删除旧容器
+            echo "➡️ Stopping and removing old container..."
             docker stop simple-flask-app || true
             docker rm simple-flask-app || true
 
             # 拉取最新镜像
-            docker pull ghcr.io/$OWNER/simple-flask-app:latest
+            echo "➡️ Pulling latest image from GHCR..."
+            docker pull ghcr.io/$OWNER/simple-flask-app:latest || { echo "❌ Failed to pull image"; exit 1; }
 
             # 启动新容器（映射 5000 端口）
+            echo "➡️ Starting new container..."
             docker run -d \
               --name simple-flask-app \
               -p 5000:5000 \
-              ghcr.io/$OWNER/simple-flask-app:latest
+              ghcr.io/$OWNER/simple-flask-app:latest || { echo "❌ Failed to start container"; exit 1; }
+
+            # 查看容器状态
+            echo "➡️ Checking container status..."
+            docker ps -a | grep simple-flask-app
+
+            echo "✅ Deployment completed successfully"
           EOF
