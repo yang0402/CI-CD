@@ -1,4 +1,3 @@
-# 指定 Flask 依赖，版本 2.0.1
 Flask==2.0.1
-# 指定 gunicorn 依赖，版本 20.1.0，用于生产环境运行
 gunicorn==20.1.0
+Werkzeug==2.0.3
