@@ -48,17 +48,14 @@ jobs:
           # 添加远程主机到 known_hosts
           ssh-keyscan -H $SERVER_IP > ~/.ssh/known_hosts
 
-          # 执行远程部署命令
-          ssh -T $SERVER_USER@$SERVER_IP << 'EOF'
+          # 构造远程脚本内容（提前展开变量）
+          REMOTE_SCRIPT=$(cat << 'EOF'
             set -e
 
             echo "➡️ $(date) - Starting deployment on server..."
 
             echo "➡️ Logging into GHCR..."
-            echo "DEBUG: OWNER=$OWNER"
-            echo "DEBUG: GHCR_TOKEN=$GHCR_TOKEN"
-
-            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$OWNER" --password-stdin || { echo "❌ Failed to login to GHCR"; exit 1; }
+            echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${OWNER}" --password-stdin || { echo "❌ Failed to login to GHCR"; exit 1; }
 
             echo "➡️ Stopping old container..."
             docker stop simple-flask-app || true
@@ -67,13 +64,17 @@ jobs:
             docker rm simple-flask-app || true
 
             echo "➡️ Pulling latest image from GHCR..."
-            docker pull ghcr.io/"$OWNER"/simple-flask-app:latest || { echo "❌ Failed to pull image"; exit 1; }
+            docker pull ghcr.io/"${OWNER}"/simple-flask-app:latest || { echo "❌ Failed to pull image"; exit 1; }
 
             echo "➡️ Starting new container..."
             docker run -d \
               --name simple-flask-app \
               -p 5000:5000 \
-              ghcr.io/"$OWNER"/simple-flask-app:latest || { echo "❌ Failed to start container"; exit 1; }
+              ghcr.io/"${OWNER}"/simple-flask-app:latest || { echo "❌ Failed to start container"; exit 1; }
 
             echo "✅ Deployment completed successfully!"
-          EOF
+EOF
+)
+
+          # 将构造好的脚本发送给远程服务器执行
+          echo "$REMOTE_SCRIPT" | ssh -T $SERVER_USER@$SERVER_IP
