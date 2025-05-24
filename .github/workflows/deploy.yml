@@ -11,14 +11,14 @@ on:
         default: 'production'
         type: choice
         options:
-        - production
-        - staging
+          - production
+          - staging
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     environment: production
-    timeout-minutes: 10  # 整个任务最多运行 10 分钟
+    timeout-minutes: 10
     permissions:
       contents: read
       packages: write
@@ -30,11 +30,9 @@ jobs:
 
       - name: 检出代码
         uses: actions/checkout@v3
-        timeout-minutes: 2
 
       - name: 设置 Docker Buildx
         uses: docker/setup-buildx-action@v2
-        timeout-minutes: 1
 
       - name: 配置缓存
         uses: actions/cache@v3
@@ -45,11 +43,12 @@ jobs:
             ${{ runner.os }}-buildx-
 
       - name: 登录到阿里云 ACR
-        uses: docker/login-action@v2
-        with:
-          registry: crpi-jus3outykfqe01tn.cn-hangzhou.personal.cr.aliyuncs.com
-          username: ${{ secrets.ACR_USERNAME }}
-          password: ${{ secrets.ACR_PASSWORD }}
+        env:
+          ACR_USERNAME: ty渝州任
+          ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
+        run: |
+          mkdir -p ~/.docker
+          echo "{\"auths\":{\"crpi-jus3outykfqe01tn.cn-hangzhou.personal.cr.aliyuncs.com\":{\"auth\":\"$(echo -n \"${ACR_USERNAME}:${ACR_PASSWORD}\" | base64)\"}}}" > ~/.docker/config.json
 
       - name: 构建并推送 Docker 镜像到阿里云 ACR
         uses: docker/build-push-action@v4
@@ -74,43 +73,52 @@ jobs:
           IMAGE_TAG: ${{ github.sha }}
           ACR_REGISTRY: crpi-jus3outykfqe01tn.cn-hangzhou.personal.cr.aliyuncs.com
           ACR_NAMESPACE: ty0402
+          ACR_USERNAME: ty渝州任
+          ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
         with:
-          host: 118.31.6.172
+          host: ${{ secrets.SERVER_IP }}
           username: root
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          envs: OWNER,IMAGE_TAG,ACR_REGISTRY,ACR_NAMESPACE
+          envs: OWNER,IMAGE_TAG,ACR_REGISTRY,ACR_NAMESPACE,ACR_USERNAME,ACR_PASSWORD
           command_timeout: 20m
           script: |
             set -e
-            
-            echo "🚀 开始部署 - $(date)"
-            
-            # 检查环境变量
-            if [ -z "${IMAGE_TAG}" ]; then exit 1; fi
-            if [ -z "${ACR_REGISTRY}" ]; then exit 1; fi
-            if [ -z "${ACR_NAMESPACE}" ]; then exit 1; fi
 
-            # 如果没有安装 Docker，则安装
+            echo "🚀 开始部署 - $(date)"
+
+            # 检查必要环境变量
+            if [ -z "${IMAGE_TAG}" ]; then echo "❌ IMAGE_TAG 未设置"; exit 1; fi
+            if [ -z "${ACR_REGISTRY}" ]; then echo "❌ ACR_REGISTRY 未设置"; exit 1; fi
+            if [ -z "${ACR_NAMESPACE}" ]; then echo "❌ ACR_NAMESPACE 未设置"; exit 1; fi
+            if [ -z "${ACR_USERNAME}" ]; then echo "❌ ACR_USERNAME 未设置"; exit 1; fi
+            if [ -z "${ACR_PASSWORD}" ]; then echo "❌ ACR_PASSWORD 未设置"; exit 1; fi
+
+            # 安装 Docker（如果未安装）
             if ! command -v docker &> /dev/null; then
+                echo "📦 正在安装 Docker..."
                 curl -fsSL https://get.docker.com  | sh
             fi
 
             # 创建 Docker 认证文件
+            echo "🔐 配置 Docker 认证信息..."
             mkdir -p ~/.docker
-            echo "{\"auths\":{\"${ACR_REGISTRY}\":{\"auth\":\"$(echo -n \"${OWNER}:${IMAGE_TAG}\" | base64)\"}}}" > ~/.docker/config.json
+            echo "{\"auths\":{\"${ACR_REGISTRY}\":{\"auth\":\"$(echo -n \"${ACR_USERNAME}:${ACR_PASSWORD}\" | base64)\"}}}" > ~/.docker/config.json
 
-            # 登录阿里云 ACR
-            echo "${IMAGE_TAG}" | docker login ${ACR_REGISTRY} -u "${OWNER}" --password-stdin
+            # 登录 ACR
+            echo "${ACR_PASSWORD}" | docker login ${ACR_REGISTRY} -u "${ACR_USERNAME}" --password-stdin
 
-            # 停止并移除旧容器
+            # 停止旧容器
+            echo "🛑 停止旧容器..."
             docker stop simple-flask-app || true
             docker rm simple-flask-app || true
 
             # 拉取新镜像
+            echo "⬇️ 拉取新镜像..."
             docker pull ${ACR_REGISTRY}/${ACR_NAMESPACE}/simple-flask-app:${IMAGE_TAG}
             docker tag ${ACR_REGISTRY}/${ACR_NAMESPACE}/simple-flask-app:${IMAGE_TAG} ${ACR_REGISTRY}/${ACR_NAMESPACE}/simple-flask-app:latest
 
             # 启动新容器
+            echo "▶️ 启动新容器..."
             docker run -d \
               --name simple-flask-app \
               --restart unless-stopped \
@@ -119,16 +127,22 @@ jobs:
               -p 5000:5000 \
               ${ACR_REGISTRY}/${ACR_NAMESPACE}/simple-flask-app:latest
 
-            # 检查容器是否启动成功
+            # 等待容器启动
+            echo "🔍 验证容器状态..."
             for i in {1..30}; do
-              if docker ps | grep -q simple-flask-app; then break; fi
+              if docker ps | grep -q simple-flask-app; then
+                echo "✅ 容器已启动"
+                break
+              fi
               sleep 1
             done
 
-            # 清理未使用的镜像
+            # 清理无用镜像
+            echo "🧹 清理无用镜像..."
             docker image prune -f
 
             # 删除认证信息
+            echo "🔒 删除认证信息..."
             rm -f ~/.docker/config.json
 
-            echo "✅ 部署完成！- $(date)"
+            echo "🎉 部署完成！- $(date)"
