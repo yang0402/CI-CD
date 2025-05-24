@@ -52,3 +52,8 @@ ufw allow 5000
 由于/etc/docker/daemon.json里面设置代理不能做token转发（可能,没试验过）,自建国内Runner不现实,因此这就是最好的办法。因此我将原先的适用于GitHub Container Registry的配置文件变成GHCR.txt以供参考,更新适合阿里云ACR的deploy.yml。为了安全可以将阿里云的ACR_USERNAME和ACR_PASSWORD。
 ## 避坑指南
 1. 请使用docker/login-action插件在远程服务器（runner链接到了远程服务器）上登陆ACR，因为mkdir -p ~/.docker echo "{\"auths\":{\"crpi-jus3outykfqe01tn.cn-hangzhou.personal.cr.aliyuncs.com\":{\"auth\":\"$(echo -n \"${ACR_USERNAME}:${ACR_PASSWORD}\" | base64)\"}}}" > ~/.docker/config.json 这种只是生成了一个认证文件，并没有真正测试是否能成功登录 ACR,同时构建时仍然可能因为权限不足或认证失败而推送失败，还缺乏对错误的检测机制（比如用户名密码错误、网络不通等。
+
+## 未来更新
+1. 加上测试步骤
+2. 更新action的具体用法详解
+3. RAM 子账号 + AccessKey 来替代当前中文用户名登录ACR
