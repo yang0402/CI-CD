@@ -44,7 +44,7 @@ docker login ghcr.io -u <GitHub用户名>
 确保服务器上的 Docker 已正确配置并具有拉取镜像的权限
 建议使用 Nginx 反向代理以增强安全性
 
-## 扩展建议
+### 扩展建议
 
 配置 HTTPS，使用 Let's Encrypt 获取免费 SSL 证书
 添加健康检查到 Dockerfile
