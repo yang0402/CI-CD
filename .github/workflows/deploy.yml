@@ -45,7 +45,7 @@ jobs:
 
             echo "➡️ $(date) - Starting deployment on server..."
 
-            echo "➡️ Logging into GHCR as user: ${OWNER}...
+            echo "➡️ Logging into GHCR as user: ${OWNER}..."
             echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${OWNER}" --password-stdin
 
             echo "➡️ Stopping old container..."
