@@ -35,29 +35,18 @@ jobs:
           SERVER_IP: 118.31.6.172
           SERVER_USER: root
         run: |
-          # 安装 SSH 客户端
           sudo apt-get update && sudo apt-get install -y openssh-client
-
-          # 创建 SSH 目录并写入私钥
           mkdir -p ~/.ssh
           echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-
-          # 添加远程主机到 known_hosts
           ssh-keyscan -H $SERVER_IP >> ~/.ssh/known_hosts
-
-          # 执行远程部署命令
-          ssh $SERVER_USER@$SERVER_IP << 'EOF'
-            # 登录 GHCR
+          ssh $SERVER_USER@$SERVER_IP << EOF
             echo "${GITHUB_TOKEN}" | docker login ghcr.io -u $OWNER --password-stdin
-            # 停止并删除旧容器
             docker stop simple-flask-app || true
             docker rm simple-flask-app || true
-            # 拉取最新镜像
             docker pull ghcr.io/$OWNER/simple-flask-app:latest
-            # 启动新容器（映射 5000 端口）
             docker run -d --name simple-flask-app -p 5000:5000 ghcr.io/$OWNER/simple-flask-app:latest
-EOF
+          EOF
         env:
           OWNER: ${{ github.repository_owner }}
           GITHUB_TOKEN: ${{ secrets.GHCR_TOKEN }}
