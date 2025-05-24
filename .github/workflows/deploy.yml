@@ -18,16 +18,23 @@ jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     environment: production
+    timeout-minutes: 10  # 添加任务超时限制
     permissions:
       contents: read
       packages: write
 
     steps:
+      - name: 显示仓库所有者
+        run: |
+          echo "仓库所有者是: ${{ github.repository_owner }}"
+
       - name: 检出代码
         uses: actions/checkout@v3
+        timeout-minutes: 2
 
       - name: 设置 Docker Buildx
         uses: docker/setup-buildx-action@v2
+        timeout-minutes: 1
 
       - name: 配置缓存
         uses: actions/cache@v3
@@ -39,6 +46,7 @@ jobs:
 
       - name: 登录到 GHCR
         uses: docker/login-action@v2
+        timeout-minutes: 1
         with:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
@@ -46,6 +54,7 @@ jobs:
 
       - name: 构建和推送 Docker 镜像
         uses: docker/build-push-action@v4
+        timeout-minutes: 10
         with:
           context: .
           push: true
@@ -62,6 +71,7 @@ jobs:
 
       - name: 部署到服务器
         uses: appleboy/ssh-action@v0.1.10
+        timeout-minutes: 5
         env:
           OWNER: ${{ github.repository_owner }}
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
@@ -71,10 +81,16 @@ jobs:
           username: root
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           envs: OWNER,GHCR_TOKEN,IMAGE_TAG
+          command_timeout: 20m  # 增加命令执行超时时间
           script: |
             set -e
             
             echo "🚀 开始部署 - $(date)"
+            
+            # 检查并安装 pv 工具用于显示进度
+            if ! command -v pv &> /dev/null; then
+                apt-get update && apt-get install -y pv
+            fi
             
             # 确保 Docker 已安装并运行
             if ! command -v docker &> /dev/null; then
@@ -91,9 +107,9 @@ jobs:
             docker stop simple-flask-app 2>/dev/null || true
             docker rm simple-flask-app 2>/dev/null || true
             
-            # 拉取新镜像
+            # 拉取新镜像（使用 pv 显示进度）
             echo "⬇️ 拉取新镜像..."
-            docker pull ghcr.io/${OWNER}/simple-flask-app:${IMAGE_TAG}
+            docker pull ghcr.io/${OWNER}/simple-flask-app:${IMAGE_TAG} 2>&1 | while read line; do echo "$(date '+%H:%M:%S') $line"; done
             docker tag ghcr.io/${OWNER}/simple-flask-app:${IMAGE_TAG} ghcr.io/${OWNER}/simple-flask-app:latest
             
             # 启动新容器
@@ -106,8 +122,23 @@ jobs:
               -p 5000:5000 \
               ghcr.io/${OWNER}/simple-flask-app:latest
             
+            # 验证容器是否成功启动
+            echo "🔍 验证容器状态..."
+            for i in {1..30}; do
+              if docker ps | grep -q simple-flask-app; then
+                echo "✅ 容器成功启动！"
+                break
+              fi
+              if [ $i -eq 30 ]; then
+                echo "❌ 容器启动失败！"
+                exit 1
+              fi
+              echo "等待容器启动... ($i/30)"
+              sleep 1
+            done
+            
             # 清理未使用的镜像
             echo "🧹 清理未使用的镜像..."
             docker image prune -f
             
-            echo "✅ 部署完成！"
+            echo "✅ 部署完成！- $(date)"
