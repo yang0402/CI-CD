@@ -35,7 +35,7 @@ jobs:
           SERVER_IP: 118.31.6.172
           SERVER_USER: root
           OWNER: ${{ github.repository_owner }}
-          GITHUB_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
         run: |
           # 安装 SSH 客户端
           sudo apt-get update && sudo apt-get install -y openssh-client
@@ -50,12 +50,12 @@ jobs:
 
           # 执行远程部署命令
           ssh -T $SERVER_USER@$SERVER_IP << 'EOF'
-            set -e  # 开启错误中断模式
+            set -e
 
             echo "➡️ $(date) - Starting deployment on server..."
 
             echo "➡️ Logging into GHCR..."
-            echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$OWNER" --password-stdin || { echo "❌ Failed to login to GHCR"; exit 1; }
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$OWNER" --password-stdin || { echo "❌ Failed to login to GHCR"; exit 1; }
 
             echo "➡️ Stopping old container..."
             docker stop simple-flask-app || true
@@ -71,9 +71,6 @@ jobs:
               --name simple-flask-app \
               -p 5000:5000 \
               ghcr.io/"$OWNER"/simple-flask-app:latest || { echo "❌ Failed to start container"; exit 1; }
-
-            echo "➡️ Checking container status..."
-            docker ps -a | grep simple-flask-app
 
             echo "✅ Deployment completed successfully"
           EOF
