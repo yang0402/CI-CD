@@ -52,6 +52,7 @@ ufw allow 5000
 由于/etc/docker/daemon.json里面设置代理不能做token转发（可能,没试验过）,自建国内Runner不现实,因此这就是最好的办法。因此我将原先的适用于GitHub Container Registry的配置文件变成GHCR.txt以供参考,更新适合阿里云ACR的deploy.yml。为了安全可以将阿里云的ACR_USERNAME和ACR_PASSWORD。
 ## 避坑指南
 1. 不能直接使用 docker/login-action 插件在远程服务器上登录 ACR。docker/login-action 是 GitHub Actions Runner 专用的。
+2. 当 docker/build-push-action 插件解析 tags 参数时，它会将 tags 下面的每一行作为一个完整的标签传递给底层的 Docker 命令。Docker 镜像的标签（tag）是用来标识镜像版本的字符串，它有严格的命名规范，不能包含空格、# 符号以及 # 后面的任何注释内容。
 
 ## 补充说明
 还有一种方法可以绕过ACR或者CHCR（未实验）
