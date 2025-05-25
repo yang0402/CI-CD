@@ -21,7 +21,7 @@ jobs:
     timeout-minutes: 10
     # `permissions`：为当前作业设置权限。
     permissions:
-      contents: read  # 允许读取仓库内容（例如检出代码）
+      contents: read   # 允许读取仓库内容（例如检出代码）
       packages: write # 允许写入 GitHub Packages（虽然这里推送到 ACR，但这是推荐的安全实践）
 
     # `steps`：定义作业中要执行的一系列步骤。
@@ -70,7 +70,7 @@ jobs:
         with:
           path: /tmp/.buildx-cache # 缓存文件的存储路径，这里是 Buildx 的缓存目录。
           key: ${{ runner.os }}-buildx-${{ github.sha }} # 缓存的唯一键，包含操作系统和当前 commit 的 SHA 值。
-                                                          # 每次新的 commit 都会生成新的缓存。
+                                                            # 每次新的 commit 都会生成新的缓存。
           restore-keys: | # 用于恢复缓存的键列表，按顺序尝试。
             ${{ runner.os }}-buildx- # 如果找不到完整匹配的 key，会尝试恢复最近的操作系统+Buildx 缓存。
 
@@ -81,7 +81,7 @@ jobs:
         uses: docker/login-action@v2
         with:
           registry: crpi-jus3outykfqe01tn.cn-hangzhou.personal.cr.aliyuncs.com # 阿里云容器镜像服务的注册表地址。
-          username: ty渝州任                                                # 您的 ACR 用户名。
+          username: ty渝州任                                                   # 您的 ACR 用户名。
           password: ${{ secrets.ACR_PASSWORD }}                             # 从 GitHub Secrets 获取 ACR 密码，确保安全。
 
       # --- 步骤 7: 构建并推送 Docker 镜像到阿里云 ACR ---
@@ -102,7 +102,7 @@ jobs:
         # `run`： shell 命令，用于更新 Buildx 缓存。
         # 这是缓存管理的最佳实践，确保新的构建结果能够被下次使用。
         run: |
-          rm -rf /tmp/.buildx-cache      # 删除旧缓存目录。
+          rm -rf /tmp/.buildx-cache          # 删除旧缓存目录。
           mv /tmp/.buildx-cache-new /tmp/.buildx-cache # 将新缓存目录重命名为旧缓存目录。
 
       # --- 步骤 9: 部署到远程服务器 ---
@@ -114,20 +114,33 @@ jobs:
           OWNER: ${{ github.repository_owner }} # 仓库所有者。
           IMAGE_TAG: ${{ github.sha }}         # 使用当前 commit SHA 作为镜像标签，用于部署指定版本。
           ACR_REGISTRY: crpi-jus3outykfqe01tn.cn-hangzhou.personal.cr.aliyuncs.com # ACR 注册表地址。
-          ACR_NAMESPACE: ty0402                # ACR 命名空间。
-          ACR_USERNAME: ty渝州任               # ACR 用户名。
+          ACR_NAMESPACE: ty0402                 # ACR 命名空间。
+          ACR_USERNAME: ty渝州任                 # ACR 用户名。
           ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }} # ACR 密码（从 GitHub Secrets 获取）。
+          LC_ALL: C.UTF-8 # 强制使用 UTF-8 编码，帮助处理中文字符
+
         # `with`：传递给 `appleboy/ssh-action` 的参数。
         with:
           host: ${{ secrets.SERVER_IP }} # 目标服务器的 IP 地址（从 GitHub Secrets 获取）。
           username: root                 # 登录服务器的用户名。
           key: ${{ secrets.SSH_PRIVATE_KEY }} # 用于 SSH 认证的私钥（从 GitHub Secrets 获取）。
-          envs: OWNER,IMAGE_TAG,ACR_REGISTRY,ACR_NAMESPACE,ACR_USERNAME,ACR_PASSWORD # 指定哪些 env 变量要传递到远程服务器的 SSH 会话中。
+          # 指定哪些 env 变量要传递到远程服务器的 SSH 会话中，确保包含 LC_ALL
+          envs: OWNER,IMAGE_TAG,ACR_REGISTRY,ACR_NAMESPACE,ACR_USERNAME,ACR_PASSWORD,LC_ALL
           command_timeout: 20m           # SSH 命令执行的超时时间，防止长时间卡住。
           script: |                      # 要在远程服务器上执行的 Shell 脚本。
             set -e # 任何命令失败立即退出脚本，确保部署流程的原子性。
 
             echo "🚀 开始部署 - $(date)" # 打印部署开始时间。
+
+            # --- DEBUG: 输出环境变量 ---
+            echo "--- DEBUG: 环境变量检查 ---"
+            echo "DEBUG: LC_ALL is set to '$LC_ALL'"
+            echo "DEBUG: IMAGE_TAG is '$IMAGE_TAG'"
+            echo "DEBUG: ACR_REGISTRY is '$ACR_REGISTRY'"
+            echo "DEBUG: ACR_NAMESPACE is '$ACR_NAMESPACE'"
+            echo "DEBUG: ACR_USERNAME is '$ACR_USERNAME'"
+            # 注意：ACR_PASSWORD 不直接输出，但其 Base64 编码结果会被检查
+            echo "--------------------------"
 
             # 检查必要环境变量
             if [ -z "${IMAGE_TAG}" ]; then echo "❌ IMAGE_TAG 未设置"; exit 1; fi
@@ -140,14 +153,32 @@ jobs:
             if ! command -v docker &> /dev/null; then
                 echo "📦 正在安装 Docker..."
                 curl -fsSL https://get.docker.com | sh
+                # 安装完成后，确保 Docker 服务已启动
+                sudo systemctl start docker || true
+                sudo systemctl enable docker || true
+                echo "📦 Docker 安装完成"
             fi
+            echo "✅ Docker 已安装"
+
 
             # 创建 Docker 认证文件 - 在远程服务器上进行 Docker 登录认证
             echo "🔐 配置 Docker 认证信息..."
             mkdir -p ~/.docker
+
+            # --- DEBUG: 打印待 Base64 编码的用户名和密码字符串 ---
+            AUTH_STRING="${ACR_USERNAME}:${ACR_PASSWORD}"
+            echo "DEBUG: Authentication string before base64: '$AUTH_STRING'"
+            BASE64_AUTH=$(echo -n "${AUTH_STRING}" | base64)
+            echo "DEBUG: Base64 encoded authentication string: '$BASE64_AUTH'"
+
             # 这行代码会生成 ~/.docker/config.json 文件，其中包含 Base64 编码的用户名和密码。
             # Docker 客户端在执行 docker pull 等命令时会自动读取此文件进行认证。
-            echo "{\"auths\":{\"${ACR_REGISTRY}\":{\"auth\":\"$(echo -n \"${ACR_USERNAME}:${ACR_PASSWORD}\" | base64)\"}}}" > ~/.docker/config.json
+            echo "{\"auths\":{\"${ACR_REGISTRY}\":{\"auth\":\"${BASE64_AUTH}\"}}}" > ~/.docker/config.json
+
+            # --- DEBUG: 打印生成的 config.json 内容 ---
+            echo "--- DEBUG: ~/.docker/config.json 内容 ---"
+            cat ~/.docker/config.json
+            echo "----------------------------------------"
 
             # 停止旧容器
             echo "🛑 停止旧容器..."
@@ -156,9 +187,20 @@ jobs:
 
             # 拉取新镜像 (Docker 会自动使用 ~/.docker/config.json 中的认证信息)
             echo "⬇️ 拉取新镜像..."
-            docker pull ${ACR_REGISTRY}/${ACR_NAMESPACE}/simple-flask-app:${IMAGE_TAG}
+            # --- DEBUG: 打印 docker pull 命令 ---
+            PULL_COMMAND="docker pull ${ACR_REGISTRY}/${ACR_NAMESPACE}/simple-flask-app:${IMAGE_TAG}"
+            echo "DEBUG: Executing pull command: $PULL_COMMAND"
+            # 执行 docker pull 并捕获其输出，便于调试
+            if ! $PULL_COMMAND; then
+                echo "❌ 镜像拉取失败！请检查 ACR 凭证和镜像路径。"
+                exit 1
+            fi
+            echo "✅ 镜像拉取成功！"
+
             # 为新拉取的镜像添加 'latest' 标签，方便后续管理或回滚。
+            echo "🏷️ 为新镜像添加 'latest' 标签..."
             docker tag ${ACR_REGISTRY}/${ACR_NAMESPACE}/simple-flask-app:${IMAGE_TAG} ${ACR_REGISTRY}/${ACR_NAMESPACE}/simple-flask-app:latest
+            echo "✅ 'latest' 标签添加完成。"
 
             # 启动新容器
             echo "▶️ 启动新容器..."
@@ -169,6 +211,7 @@ jobs:
               --log-opt max-file=3 \
               -p 5000:5000 \
               ${ACR_REGISTRY}/${ACR_NAMESPACE}/simple-flask-app:latest
+            echo "✅ 容器启动命令已执行。"
 
             # 等待容器启动并验证状态
             echo "🔍 验证容器状态..."
@@ -177,15 +220,22 @@ jobs:
                 echo "✅ 容器已启动"
                 break
               fi
+              echo "⏳ 等待容器启动...($i/30)"
               sleep 1
             done
+            if ! docker ps | grep -q simple-flask-app; then
+                echo "❌ 容器未在预期时间内启动。"
+                exit 1
+            fi
 
             # 清理无用镜像
             echo "🧹 清理无用镜像..."
             docker image prune -f # 删除所有悬挂（没有被任何容器引用的）的镜像。
+            echo "✅ 无用镜像清理完成。"
 
             # 删除认证信息
             echo "🔒 删除认证信息..."
             rm -f ~/.docker/config.json # 部署完成后删除临时的认证文件，提高安全性。
+            echo "✅ 认证信息已删除。"
 
             echo "🎉 部署完成！- $(date)"
