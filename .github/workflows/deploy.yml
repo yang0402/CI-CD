@@ -92,10 +92,10 @@ jobs:
           context: . # Dockerfile 的上下文路径，'.' 表示当前仓库根目录。
           push: true # 设置为 true 表示构建完成后自动推送镜像到注册表。
           tags: |    # 指定要推送的镜像标签，可以有多个。
-            crpi-jus3outykfqe01tn.cn-hangzhou.personal.cr.aliyuncs.com/ty0402/simple-flask-app:latest # 推送 'latest' 标签。
-            crpi-jus3outykfqe01tn.cn-hangzhou.personal.cr.aliyuncs.com/ty0402/simple-flask-app:${{ github.sha }} # 推送以当前 commit SHA 作为标签的镜像，用于版本追溯。
-          cache-from: type=local,src=/tmp/.buildx-cache # 从 /tmp/.buildx-cache 路径恢复构建缓存，加速构建。
-          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max # 将新的构建缓存写入 /tmp/.buildx-cache-new，用于下次构建。
+            crpi-jus3outykfqe01tn.cn-hangzhou.personal.cr.aliyuncs.com/ty0402/simple-flask-app:latest
+            crpi-jus3outykfqe01tn.cn-hangzhou.personal.cr.aliyuncs.com/ty0402/simple-flask-app:${{ github.sha }}
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
 
       # --- 步骤 8: 更新缓存 (将新生成的缓存复制到旧缓存位置) ---
       - name: 更新缓存
