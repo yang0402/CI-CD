@@ -36,4 +36,33 @@
 4.步骤定义: 每个 Job 包含一系列 Step，这些 Step 定义了要执行的具体任务（例如运行脚本，调用 Action）。
 5.Runner 执行: GitHub Actions 将 Job 分配给可用的 Runner (虚拟机或容器) 执行。
 6.Action 和脚本: 每个 Step 可能是执行一个预定义的 Action，也可能是运行一段自定义的脚本。
-7.输出和工件: Job 可能会生成输出 (例如日志、测试报告、构建产物)，这些输出可以通过 Artifacts 功能上传并下载。
+7.输出和工件: Job 可能会生成输出 (例如日志、测试报告、构建产物),这些输出可以通过 Artifacts 功能上传并下载。
+
+
+
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+|                                                          GitHub 官方常用 Actions (`actions/` & `docker/`)                                                             |
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| 分类                 | Action 名称及最新推荐版本           | 主要功能 (简述)                                      | 典型用途场景                                              |
++----------------------+---------------------------------+------------------------------------------------------+-----------------------------------------------------------|
+| **基础工作流** |                                 |                                                      |                                                           |
+| 代码检出             | `actions/checkout@v4`           | 将 Git 仓库代码克隆到 Runner 上。                    | 几乎所有工作流的第一步，获取源代码进行构建、测试等。        |
+| 上传工件             | `actions/upload-artifact@v4`    | 上传构建产物、测试报告、日志等文件。                 | 将编译后的二进制文件、测试报告等保存，供下载或后续Job使用。 |
+| 下载工件             | `actions/download-artifact@v4`  | 下载之前 Job 上传的工件。                            | 跨 Job 传递文件，或下载已保存的构建产物。                 |
+| **环境设置** |                                 |                                                      |                                                           |
+| 设置Node.js环境      | `actions/setup-node@v4`         | 在 Runner 上设置 Node.js 环境及 npm/yarn。           | Node.js 项目的依赖安装、测试、构建。                      |
+| 设置Python环境       | `actions/setup-python@v5`       | 在 Runner 上设置 Python 环境及 pip。                 | Python 项目的依赖安装、测试、构建。                       |
+| 设置Java环境         | `actions/setup-java@v4`         | 在 Runner 上设置 Java JDK 环境。                     | Java 项目的编译、打包、测试。                             |
+| 设置Go环境           | `actions/setup-go@v5`           | 在 Runner 上设置 Go 环境。                           | Go 项目的编译、测试。                                     |
+| 设置.NET环境         | `actions/setup-dotnet@v4`       | 在 Runner 上设置 .NET SDK。                          | .NET 项目的构建、测试。                                   |
+| **性能优化** |                                 |                                                      |                                                           |
+| 缓存                 | `actions/cache@v3`              | 缓存文件和目录，以加速工作流运行。                   | 缓存依赖包（如 `node_modules`）、构建工具、编译器缓存等。 |
+| **Docker 相关** |                                 |                                                      |                                                           |
+| Docker登录           | `docker/login-action@v3`        | 登录 Docker 镜像注册表（如 Docker Hub, ACR, ECR）。 | 推送或拉取私有 Docker 镜像前需要认证。                    |
+| 设置Buildx           | `docker/setup-buildx-action@v3` | 设置 Docker Buildx 构建器，支持多平台构建。       | 构建多架构（如 amd64, arm64）Docker 镜像。                |
+| 构建并推送Docker镜像 | `docker/build-push-action@v5`   | 构建 Docker 镜像并可选择推送到注册表。               | 自动化 Docker 镜像的 CI/CD 流程。                         |
+| **GitHub集成** |                                 |                                                      |                                                           |
+| 创建发布 (Release)   | `actions/create-release@v1`     | 在 GitHub 上创建新的发布 (Release)。                 | 自动化发布流程，通常在Tag推送后触发。                     |
+| GitHub Script        | `actions/github-script@v7`      | 直接在工作流中运行 GitHub API 脚本。                 | 执行自定义的 GitHub API 操作，如评论PR、打标签等。        |
+| 配置AWS凭证          | `aws-actions/configure-aws-credentials@v4` | 配置 AWS 凭证，用于后续与 AWS 服务交互。           | 部署应用到 AWS 服务，如 S3, EC2, ECS, Lambda 等。         |
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
