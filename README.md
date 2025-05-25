@@ -51,9 +51,25 @@ ufw allow 5000
 ## 由于阿里云服务器拉取 GHCR 镜像会慢,因此本项目更新采用使用阿里云容器镜像服务（ACR）中转
 由于/etc/docker/daemon.json里面设置代理不能做token转发（可能,没试验过）,自建国内Runner不现实,因此这就是最好的办法。因此我将原先的适用于GitHub Container Registry的配置文件变成GHCR.txt以供参考,更新适合阿里云ACR的deploy.yml。为了安全可以将阿里云的ACR_USERNAME和ACR_PASSWORD。
 ## 避坑指南
-1. 请使用docker/login-action插件在远程服务器（runner链接到了远程服务器）上登陆ACR，因为mkdir -p ~/.docker echo "{\"auths\":{\"crpi-jus3outykfqe01tn.cn-hangzhou.personal.cr.aliyuncs.com\":{\"auth\":\"$(echo -n \"${ACR_USERNAME}:${ACR_PASSWORD}\" | base64)\"}}}" > ~/.docker/config.json 这种只是生成了一个认证文件，并没有真正测试是否能成功登录 ACR,同时构建时仍然可能因为权限不足或认证失败而推送失败，还缺乏对错误的检测机制（比如用户名密码错误、网络不通等。
+1. 不能直接使用 docker/login-action 插件在远程服务器上登录 ACR。docker/login-action 是 GitHub Actions Runner 专用的。
+
+## 补充说明
+还有一种方法可以绕过ACR或者CHCR（未实验）
+1. CI/CD 工作流构建 Docker 镜像。
+2. 使用 docker save -o my_image.tar my_image_name:tag 将镜像导出为 my_image.tar 文件。
+3. actions/upload-artifact 上传 my_image.tar到上传到 GitHub Actions 提供的专用 Artifacts 存储服务。
+4. 部署 Job 下载 my_image.tar。
+5. 部署 Job 通过 SSH 连接到阿里云服务器。
+6. 将 my_image.tar 通过 scp 传输到阿里云服务器。
+7. 在阿里云服务器上使用 docker load -i my_image.tar 加载镜像。
+8. docker run 运行容器。
+#### actions/upload-artifact 的核心功能是：将 GitHub Actions 工作流在运行过程中生成的文件，从 Runner 上传到 GitHub 的云端存储，从而实现这些文件的持久化、共享和后续的下载。
+
+## 测试
+1. 在项目根目录运行 pytest 命令,pytest 会自动发现 tests/ 目录中的 test_app.py 文件，并执行其中的测试函数。
+2. 运行 pytest 命令的根目录（即 app.py 所在的目录）被自动添加到了 Python 的模块搜索路径 sys.path 中，使得 app.py 可以被视为一个可以直接导入的顶级模块。但是，仅仅路径在 sys.path 中还不够，Python 还需要将目录识别为包，才能正确地处理目录内的模块导入。
+
 
 ## 未来更新
-1. 加上测试步骤
-2. 更新action的具体用法详解
-3. RAM 子账号 + AccessKey 来替代当前中文用户名登录ACR
+1. 更新action的具体用法详解
+2. RAM 子账号 + AccessKey 来替代当前中文用户名登录ACR

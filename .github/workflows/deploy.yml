@@ -1,89 +1,133 @@
+# .github/workflows/docker-deploy.yml
+
+# `name`：工作流的名称，会在 GitHub Actions 页面显示。
 name: Docker 部署流水线 (适配阿里云 ACR)
 
+# `on`：定义触发工作流运行的事件。
 on:
+  # `push` 事件：当代码推送到仓库时触发。
   push:
+    # `branches`：指定只有当代码推送到 'master' 分支时才触发此工作流。
+    # 这意味着只有 master 分支的代码变更才会触发部署。
     branches: [ master ]
-  workflow_dispatch:
-    inputs:
-      environment:
-        description: '选择部署环境'
-        required: true
-        default: 'production'
-        type: choice
-        options:
-          - production
-          - staging
 
+# `jobs`：包含一个或多个作业（Job）的定义。
 jobs:
+  # 定义一个名为 'build-and-deploy' 的作业。
   build-and-deploy:
+    # `runs-on`：指定运行此作业的 Runner（运行器）环境。这里使用 GitHub 托管的最新 Ubuntu 环境。
     runs-on: ubuntu-latest
-    environment: production
+    # `timeout-minutes`：设置作业的最大运行时间，超过此时间作业将被取消。
     timeout-minutes: 10
+    # `permissions`：为当前作业设置权限。
     permissions:
-      contents: read
-      packages: write
+      contents: read  # 允许读取仓库内容（例如检出代码）
+      packages: write # 允许写入 GitHub Packages（虽然这里推送到 ACR，但这是推荐的安全实践）
 
+    # `steps`：定义作业中要执行的一系列步骤。
     steps:
+      # --- 步骤 1: 显示仓库所有者 (可选，用于调试或信息展示) ---
       - name: 显示仓库所有者
+        # `run`：执行 shell 命令。
         run: |
           echo "仓库所有者是: ${{ github.repository_owner }}"
 
+      # --- 步骤 2: 检出代码 ---
       - name: 检出代码
+        # `uses`：使用 `actions/checkout@v3` Action 来克隆仓库代码到 Runner。
+        # 这是所有基于代码的操作的必备步骤。
         uses: actions/checkout@v3
 
+      # --- 步骤 3: 设置 Python 环境并运行测试 ---
+      # 这一步至关重要，它确保只有通过测试的代码才会被构建和部署。
+      - name: 设置 Python 环境并安装依赖
+        # `uses`：使用 `actions/setup-python@v4` Action 来设置 Python 环境。
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.8' # 指定 Python 版本，与您本地测试使用的版本保持一致。
+      - name: 安装 Python 依赖
+        run: |
+          python -m pip install --upgrade pip # 升级 pip
+          pip install -r requirements.txt     # 安装 requirements.txt 中列出的所有依赖，包括 pytest 和 Flask
+
+      - name: 运行 Pytest 测试
+        # `run`：执行 pytest 测试。
+        # 如果测试失败，此步骤将失败，从而阻止后续的 Docker 镜像构建和部署。
+        run: |
+          pytest
+
+      # --- 步骤 4: 设置 Docker Buildx ---
       - name: 设置 Docker Buildx
+        # `uses`：使用 `docker/setup-buildx-action@v2` Action 来设置 Docker Buildx。
+        # Buildx 是 Docker 的一个组件，用于构建多平台镜像和启用高级构建功能（如缓存）。
         uses: docker/setup-buildx-action@v2
 
+      # --- 步骤 5: 配置构建缓存 ---
       - name: 配置缓存
+        # `uses`：使用 `actions/cache@v3` Action 来配置构建缓存。
+        # 缓存可以加速重复的构建过程，尤其是 Docker 镜像构建。
         uses: actions/cache@v3
         with:
-          path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-buildx-
+          path: /tmp/.buildx-cache # 缓存文件的存储路径，这里是 Buildx 的缓存目录。
+          key: ${{ runner.os }}-buildx-${{ github.sha }} # 缓存的唯一键，包含操作系统和当前 commit 的 SHA 值。
+                                                          # 每次新的 commit 都会生成新的缓存。
+          restore-keys: | # 用于恢复缓存的键列表，按顺序尝试。
+            ${{ runner.os }}-buildx- # 如果找不到完整匹配的 key，会尝试恢复最近的操作系统+Buildx 缓存。
 
-      - name: 登录到阿里云 ACR
+      # --- 步骤 6: 登录到阿里云容器镜像服务 (ACR) - 在 GitHub Actions Runner 上执行 ---
+      - name: 登录到阿里云 ACR (Runner)
+        # `uses`：使用 `docker/login-action@v2` Action 来登录 Docker 注册表。
+        # 此登录是为了让 GitHub Actions Runner 能够将构建的镜像推送到 ACR。
         uses: docker/login-action@v2
         with:
-          registry: crpi-jus3outykfqe01tn.cn-hangzhou.personal.cr.aliyuncs.com
-          username: ty渝州任
-          password: ${{ secrets.ACR_PASSWORD }}
+          registry: crpi-jus3outykfqe01tn.cn-hangzhou.personal.cr.aliyuncs.com # 阿里云容器镜像服务的注册表地址。
+          username: ty渝州任                                                # 您的 ACR 用户名。
+          password: ${{ secrets.ACR_PASSWORD }}                             # 从 GitHub Secrets 获取 ACR 密码，确保安全。
 
+      # --- 步骤 7: 构建并推送 Docker 镜像到阿里云 ACR ---
       - name: 构建并推送 Docker 镜像到阿里云 ACR
+        # `uses`：使用 `docker/build-push-action@v4` Action 来构建 Docker 镜像并推送到远程仓库。
         uses: docker/build-push-action@v4
         with:
-          context: .
-          push: true
-          tags: |
-            crpi-jus3outykfqe01tn.cn-hangzhou.personal.cr.aliyuncs.com/ty0402/simple-flask-app:latest
-            crpi-jus3outykfqe01tn.cn-hangzhou.personal.cr.aliyuncs.com/ty0402/simple-flask-app:${{ github.sha }}
-          cache-from: type=local,src=/tmp/.buildx-cache
-          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
+          context: . # Dockerfile 的上下文路径，'.' 表示当前仓库根目录。
+          push: true # 设置为 true 表示构建完成后自动推送镜像到注册表。
+          tags: |    # 指定要推送的镜像标签，可以有多个。
+            crpi-jus3outykfqe01tn.cn-hangzhou.personal.cr.aliyuncs.com/ty0402/simple-flask-app:latest # 推送 'latest' 标签。
+            crpi-jus3outykfqe01tn.cn-hangzhou.personal.cr.aliyuncs.com/ty0402/simple-flask-app:${{ github.sha }} # 推送以当前 commit SHA 作为标签的镜像，用于版本追溯。
+          cache-from: type=local,src=/tmp/.buildx-cache # 从 /tmp/.buildx-cache 路径恢复构建缓存，加速构建。
+          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max # 将新的构建缓存写入 /tmp/.buildx-cache-new，用于下次构建。
 
+      # --- 步骤 8: 更新缓存 (将新生成的缓存复制到旧缓存位置) ---
       - name: 更新缓存
+        # `run`： shell 命令，用于更新 Buildx 缓存。
+        # 这是缓存管理的最佳实践，确保新的构建结果能够被下次使用。
         run: |
-          rm -rf /tmp/.buildx-cache
-          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+          rm -rf /tmp/.buildx-cache      # 删除旧缓存目录。
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache # 将新缓存目录重命名为旧缓存目录。
 
+      # --- 步骤 9: 部署到远程服务器 ---
       - name: 部署到服务器
+        # `uses`：使用 `appleboy/ssh-action@v0.1.10` Action 通过 SSH 连接到远程服务器并执行命令。
         uses: appleboy/ssh-action@v0.1.10
+        # `env`：定义在此步骤中可用的环境变量。
         env:
-          OWNER: ${{ github.repository_owner }}
-          IMAGE_TAG: ${{ github.sha }}
-          ACR_REGISTRY: crpi-jus3outykfqe01tn.cn-hangzhou.personal.cr.aliyuncs.com
-          ACR_NAMESPACE: ty0402
-          ACR_USERNAME: ty渝州任
-          ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
+          OWNER: ${{ github.repository_owner }} # 仓库所有者。
+          IMAGE_TAG: ${{ github.sha }}         # 使用当前 commit SHA 作为镜像标签，用于部署指定版本。
+          ACR_REGISTRY: crpi-jus3outykfqe01tn.cn-hangzhou.personal.cr.aliyuncs.com # ACR 注册表地址。
+          ACR_NAMESPACE: ty0402                # ACR 命名空间。
+          ACR_USERNAME: ty渝州任               # ACR 用户名。
+          ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }} # ACR 密码（从 GitHub Secrets 获取）。
+        # `with`：传递给 `appleboy/ssh-action` 的参数。
         with:
-          host: ${{ secrets.SERVER_IP }}
-          username: root
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          envs: OWNER,IMAGE_TAG,ACR_REGISTRY,ACR_NAMESPACE,ACR_USERNAME,ACR_PASSWORD
-          command_timeout: 20m
-          script: |
-            set -e
+          host: ${{ secrets.SERVER_IP }} # 目标服务器的 IP 地址（从 GitHub Secrets 获取）。
+          username: root                 # 登录服务器的用户名。
+          key: ${{ secrets.SSH_PRIVATE_KEY }} # 用于 SSH 认证的私钥（从 GitHub Secrets 获取）。
+          envs: OWNER,IMAGE_TAG,ACR_REGISTRY,ACR_NAMESPACE,ACR_USERNAME,ACR_PASSWORD # 指定哪些 env 变量要传递到远程服务器的 SSH 会话中。
+          command_timeout: 20m           # SSH 命令执行的超时时间，防止长时间卡住。
+          script: |                      # 要在远程服务器上执行的 Shell 脚本。
+            set -e # 任何命令失败立即退出脚本，确保部署流程的原子性。
 
-            echo "🚀 开始部署 - $(date)"
+            echo "🚀 开始部署 - $(date)" # 打印部署开始时间。
 
             # 检查必要环境变量
             if [ -z "${IMAGE_TAG}" ]; then echo "❌ IMAGE_TAG 未设置"; exit 1; fi
@@ -95,25 +139,25 @@ jobs:
             # 安装 Docker（如果未安装）
             if ! command -v docker &> /dev/null; then
                 echo "📦 正在安装 Docker..."
-                curl -fsSL https://get.docker.com  | sh
+                curl -fsSL https://get.docker.com | sh
             fi
 
-            # 创建 Docker 认证文件
+            # 创建 Docker 认证文件 - 在远程服务器上进行 Docker 登录认证
             echo "🔐 配置 Docker 认证信息..."
             mkdir -p ~/.docker
+            # 这行代码会生成 ~/.docker/config.json 文件，其中包含 Base64 编码的用户名和密码。
+            # Docker 客户端在执行 docker pull 等命令时会自动读取此文件进行认证。
             echo "{\"auths\":{\"${ACR_REGISTRY}\":{\"auth\":\"$(echo -n \"${ACR_USERNAME}:${ACR_PASSWORD}\" | base64)\"}}}" > ~/.docker/config.json
-
-            # 登录 ACR
-            echo "${ACR_PASSWORD}" | docker login ${ACR_REGISTRY} -u "${ACR_USERNAME}" --password-stdin
 
             # 停止旧容器
             echo "🛑 停止旧容器..."
-            docker stop simple-flask-app || true
-            docker rm simple-flask-app || true
+            docker stop simple-flask-app || true # 停止容器，如果容器不存在则忽略错误。
+            docker rm simple-flask-app || true   # 删除容器，如果容器不存在则忽略错误。
 
-            # 拉取新镜像
+            # 拉取新镜像 (Docker 会自动使用 ~/.docker/config.json 中的认证信息)
             echo "⬇️ 拉取新镜像..."
             docker pull ${ACR_REGISTRY}/${ACR_NAMESPACE}/simple-flask-app:${IMAGE_TAG}
+            # 为新拉取的镜像添加 'latest' 标签，方便后续管理或回滚。
             docker tag ${ACR_REGISTRY}/${ACR_NAMESPACE}/simple-flask-app:${IMAGE_TAG} ${ACR_REGISTRY}/${ACR_NAMESPACE}/simple-flask-app:latest
 
             # 启动新容器
@@ -126,9 +170,9 @@ jobs:
               -p 5000:5000 \
               ${ACR_REGISTRY}/${ACR_NAMESPACE}/simple-flask-app:latest
 
-            # 等待容器启动
+            # 等待容器启动并验证状态
             echo "🔍 验证容器状态..."
-            for i in {1..30}; do
+            for i in {1..30}; do # 循环最多 30 秒，检查容器是否启动。
               if docker ps | grep -q simple-flask-app; then
                 echo "✅ 容器已启动"
                 break
@@ -138,10 +182,10 @@ jobs:
 
             # 清理无用镜像
             echo "🧹 清理无用镜像..."
-            docker image prune -f
+            docker image prune -f # 删除所有悬挂（没有被任何容器引用的）的镜像。
 
             # 删除认证信息
             echo "🔒 删除认证信息..."
-            rm -f ~/.docker/config.json
+            rm -f ~/.docker/config.json # 部署完成后删除临时的认证文件，提高安全性。
 
             echo "🎉 部署完成！- $(date)"
